@@ -53,6 +53,7 @@ def extraer_datos():
 
         try:
 
+            # Extraer información desde SQL Server
             consulta = text(
                 f"SELECT * FROM dbo.[{tabla}]"
             )
@@ -62,8 +63,10 @@ def extraer_datos():
                 conexion
             )
 
+            # Guardar los datos en el diccionario
             datos[tabla] = df
 
+            # Actualizar auditoría
             registro["registros"] = len(df)
             registro["estado"] = "EXITOSO"
             registro["mensaje"] = "Extraccion completada"
@@ -89,6 +92,10 @@ def extraer_datos():
 
     fecha_fin = datetime.now()
 
+    # ==========================================
+    # RESUMEN DE EXTRACCION
+    # ==========================================
+
     print("\n================================")
     print(" RESUMEN DE EXTRACCION")
     print("================================")
@@ -103,16 +110,23 @@ def extraer_datos():
     print("Total de registros:", total_registros)
 
     exitosas = sum(
-        1 for a in auditoria
-        if a["estado"] == "EXITOSO"
+        1 for registro in auditoria
+        if registro["estado"] == "EXITOSO"
     )
 
-    fallidas = len(auditoria) - exitosas
+    fallidas = sum(
+        1 for registro in auditoria
+        if registro["estado"] == "ERROR"
+    )
 
     print("Tablas exitosas:", exitosas)
     print("Tablas fallidas:", fallidas)
 
     print("\nEXTRACCION FINALIZADA")
+
+    # ==========================================
+    # DEVOLVER RESULTADOS
+    # ==========================================
 
     return datos, auditoria
 
@@ -124,3 +138,12 @@ def extraer_datos():
 if __name__ == "__main__":
 
     datos, auditoria = extraer_datos()
+
+    print("\n================================")
+    print(" VERIFICACION DE EXTRACCION")
+    print("================================")
+
+    print("Tipo de datos:", type(datos))
+    print("Tipo de auditoria:", type(auditoria))
+    print("Tablas extraidas:", len(datos))
+
