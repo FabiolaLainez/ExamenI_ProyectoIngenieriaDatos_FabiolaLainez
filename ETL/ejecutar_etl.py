@@ -1,6 +1,7 @@
 
 from extraccion import extraer_datos
 from transformacion import transformar_datos
+from carga_raw import cargar_raw
 from carga import cargar_datos
 
 
@@ -13,11 +14,8 @@ def ejecutar_etl():
         print("================================")
 
         # 1. EXTRACCION
-        resultado = extraer_datos()
+        datos, auditoria = extraer_datos()
 
-        datos, auditoria = resultado
-
-        # Verificar que la extraccion fue exitosa
         errores = [
             registro for registro in auditoria
             if registro["estado"] != "EXITOSO"
@@ -28,10 +26,13 @@ def ejecutar_etl():
                 "La extraccion contiene tablas con errores."
             )
 
-        # 2. TRANSFORMACION
+        # 2. CARGA LANDING / RAW
+        cargar_raw(datos)
+
+        # 3. TRANSFORMACION
         datos_limpios = transformar_datos(datos)
 
-        # 3. CARGA
+        # 4. CARGA ACTUAL A STAGING
         cargar_datos(datos_limpios)
 
         print("\n================================")
