@@ -2,8 +2,9 @@
 import pandas as pd
 from datetime import datetime
 
+
 # ==========================================
-# CONFIGURACION DE COLUMNAS DE FECHAS
+# CONFIGURACION DE FECHAS
 # ==========================================
 
 COLUMNAS_FECHA = {
@@ -25,28 +26,28 @@ COLUMNAS_FECHA = {
 def transformar_datos(datos):
 
     datos_limpios = {}
+    auditoria_calidad = []
 
-    fecha_procesamiento = datetime.now()
+    fecha_carga = datetime.now()
 
     print("\n================================")
-    print(" INICIANDO TRANSFORMACION")
+    print(" INICIANDO CLEAN / VALIDATED")
     print("================================")
 
     for tabla, df_original in datos.items():
 
         try:
 
-            # Trabajar sobre una copia
             df = df_original.copy()
 
             registros_iniciales = len(df)
 
-            # 1. Eliminar duplicados exactos
+            # 1. ELIMINAR DUPLICADOS
             df = df.drop_duplicates()
 
             duplicados = registros_iniciales - len(df)
 
-            # 2. Limpiar columnas de texto
+            # 2. LIMPIAR ESPACIOS EN COLUMNAS DE TEXTO
             columnas_texto = df.select_dtypes(
                 include=["object", "string"]
             ).columns
@@ -65,46 +66,53 @@ def transformar_datos(datos):
                     regex=True
                 )
 
-            # 3. Validar columnas de fechas
+            # 3. VALIDAR Y CONVERTIR FECHAS
             fechas_invalidas = 0
 
             for columna in COLUMNAS_FECHA.get(tabla, []):
 
-                if columna not in df.columns:
-                    print(
-                        f"ADVERTENCIA: No existe "
-                        f"{columna} en {tabla}"
+                if columna in df.columns:
+
+                    valores_originales = df[columna]
+
+                    fechas_convertidas = pd.to_datetime(
+                        valores_originales,
+                        errors="coerce"
                     )
-                    continue
 
-                valores_originales = df[columna]
+                    fechas_invalidas += int(
+                        (
+                            valores_originales.notna()
+                            & fechas_convertidas.isna()
+                        ).sum()
+                    )
 
-                fechas_convertidas = pd.to_datetime(
-                    valores_originales,
-                    errors="coerce"
-                )
+                    df[columna] = fechas_convertidas
 
-                invalidas = (
-                    valores_originales.notna()
-                    & fechas_convertidas.isna()
-                )
-
-                fechas_invalidas += int(invalidas.sum())
-
-                df[columna] = fechas_convertidas
-
-            # 4. Contabilizar valores nulos
+            # 4. CONTABILIZAR VALORES NULOS
             total_nulos = int(
                 df.isna().sum().sum()
             )
 
-            # 5. Agregar fecha de procesamiento
-            df["FechaCarga"] = fecha_procesamiento
+            # 5. AGREGAR FECHA DE CARGA
+            df["FechaCarga"] = fecha_carga
 
-            # 6. Guardar DataFrame transformado
+            # Guardar DataFrame limpio
             datos_limpios[tabla] = df
 
-            # 7. Mostrar resultados
+            # 6. REGISTRAR AUDITORIA
+            auditoria_calidad.append({
+                "Tabla": tabla,
+                "FechaAuditoria": fecha_carga,
+                "RegistrosIniciales": registros_iniciales,
+                "DuplicadosEliminados": duplicados,
+                "FechasInvalidas": fechas_invalidas,
+                "ValoresNulos": total_nulos,
+                "RegistrosFinales": len(df),
+                "Estado": "EXITOSO",
+                "Mensaje": "Transformacion completada"
+            })
+
             print(f"\nTabla: {tabla}")
             print(f"Registros iniciales: {registros_iniciales}")
             print(f"Duplicados eliminados: {duplicados}")
@@ -114,7 +122,19 @@ def transformar_datos(datos):
 
         except Exception as error:
 
-            print(f"\nERROR TRANSFORMANDO TABLA: {tabla}")
+            auditoria_calidad.append({
+                "Tabla": tabla,
+                "FechaAuditoria": fecha_carga,
+                "RegistrosIniciales": len(df_original),
+                "DuplicadosEliminados": 0,
+                "FechasInvalidas": 0,
+                "ValoresNulos": 0,
+                "RegistrosFinales": 0,
+                "Estado": "ERROR",
+                "Mensaje": str(error)
+            })
+
+            print(f"\nERROR EN TRANSFORMACION: {tabla}")
             print(error)
 
             raise
@@ -123,7 +143,7 @@ def transformar_datos(datos):
     print(" TRANSFORMACION COMPLETADA")
     print("================================")
 
-    return datos_limpios
+    return datos_limpios, auditoria_calidad
 
 
 # ==========================================
@@ -134,14 +154,19 @@ if __name__ == "__main__":
 
     from extraccion import extraer_datos
 
-    resultado_extraccion = extraer_datos()
+    datos, auditoria = extraer_datos()
 
-    # Compatibilidad con la extraccion que devuelve
-    # (datos, auditoria) o solamente datos.
+    errores = [
+        registro for registro in auditoria
+        if registro["estado"] != "EXITOSO"
+    ]
 
-    if isinstance(resultado_extraccion, tuple):
-        datos, auditoria_extraccion = resultado_extraccion
-    else:
-        datos = resultado_extraccion
+    if errores:
+        raise Exception(
+            "Existen errores en la extraccion."
+        )
 
-    datos_limpios = transformar_datos(datos)
+    datos_limpios, auditoria_calidad = transformar_datos(datos)
+
+    print("\nTablas transformadas:", len(datos_limpios))
+    print("Registros de auditoria:", len(auditoria_calidad))
