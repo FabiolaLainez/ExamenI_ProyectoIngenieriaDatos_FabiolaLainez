@@ -2,7 +2,10 @@
 import pandas as pd
 from datetime import datetime
 
-# Columnas que contienen fechas en cada tabla
+# ==========================================
+# CONFIGURACION DE COLUMNAS DE FECHAS
+# ==========================================
+
 COLUMNAS_FECHA = {
     "Categorias": [],
     "Clientes": ["FechaRegistro"],
@@ -15,9 +18,15 @@ COLUMNAS_FECHA = {
 }
 
 
+# ==========================================
+# PROCESO DE TRANSFORMACION
+# ==========================================
+
 def transformar_datos(datos):
 
     datos_limpios = {}
+
+    fecha_procesamiento = datetime.now()
 
     print("\n================================")
     print(" INICIANDO TRANSFORMACION")
@@ -25,71 +34,90 @@ def transformar_datos(datos):
 
     for tabla, df_original in datos.items():
 
-        # Trabajar sobre una copia
-        df = df_original.copy()
+        try:
 
-        registros_iniciales = len(df)
+            # Trabajar sobre una copia
+            df = df_original.copy()
 
-        # 1. Eliminar duplicados exactos
-        df = df.drop_duplicates()
+            registros_iniciales = len(df)
 
-        duplicados = registros_iniciales - len(df)
+            # 1. Eliminar duplicados exactos
+            df = df.drop_duplicates()
 
-        # 2. Limpiar columnas de texto
-        columnas_texto = df.select_dtypes(
-            include=["object", "string"]
-        ).columns
+            duplicados = registros_iniciales - len(df)
 
-        for columna in columnas_texto:
+            # 2. Limpiar columnas de texto
+            columnas_texto = df.select_dtypes(
+                include=["object", "string"]
+            ).columns
 
-            df[columna] = df[columna].apply(
-                lambda valor: valor.strip()
-                if isinstance(valor, str)
-                else valor
+            for columna in columnas_texto:
+
+                df[columna] = df[columna].apply(
+                    lambda valor: valor.strip()
+                    if isinstance(valor, str)
+                    else valor
+                )
+
+                df[columna] = df[columna].replace(
+                    r"^\s*$",
+                    pd.NA,
+                    regex=True
+                )
+
+            # 3. Validar columnas de fechas
+            fechas_invalidas = 0
+
+            for columna in COLUMNAS_FECHA.get(tabla, []):
+
+                if columna not in df.columns:
+                    print(
+                        f"ADVERTENCIA: No existe "
+                        f"{columna} en {tabla}"
+                    )
+                    continue
+
+                valores_originales = df[columna]
+
+                fechas_convertidas = pd.to_datetime(
+                    valores_originales,
+                    errors="coerce"
+                )
+
+                invalidas = (
+                    valores_originales.notna()
+                    & fechas_convertidas.isna()
+                )
+
+                fechas_invalidas += int(invalidas.sum())
+
+                df[columna] = fechas_convertidas
+
+            # 4. Contabilizar valores nulos
+            total_nulos = int(
+                df.isna().sum().sum()
             )
 
-            # Convertir textos vacíos en valores nulos
-            df[columna] = df[columna].replace(
-                r"^\s*$",
-                pd.NA,
-                regex=True
-            )
+            # 5. Agregar fecha de procesamiento
+            df["FechaCarga"] = fecha_procesamiento
 
-        # 3. Validar columnas de fechas
-        fechas_invalidas = 0
+            # 6. Guardar DataFrame transformado
+            datos_limpios[tabla] = df
 
-        for columna in COLUMNAS_FECHA.get(tabla, []):
+            # 7. Mostrar resultados
+            print(f"\nTabla: {tabla}")
+            print(f"Registros iniciales: {registros_iniciales}")
+            print(f"Duplicados eliminados: {duplicados}")
+            print(f"Fechas invalidas: {fechas_invalidas}")
+            print(f"Valores nulos: {total_nulos}")
+            print(f"Registros finales: {len(df)}")
 
-            valores_originales = df[columna]
+        except Exception as error:
 
-            fechas_convertidas = pd.to_datetime(
-                valores_originales,
-                errors="coerce"
-            )
+            print(f"\nERROR TRANSFORMANDO TABLA: {tabla}")
+            print(error)
 
-            fechas_invalidas += (
-                valores_originales.notna()
-                & fechas_convertidas.isna()
-            ).sum()
-
-            df[columna] = fechas_convertidas
-
-        # 4. Contar valores nulos
-        total_nulos = int(df.isna().sum().sum())
-
-        # 5. Agregar fecha de procesamiento
-        df["FechaCarga"] = datetime.now()
-
-        # 6. Guardar DataFrame transformado
-        datos_limpios[tabla] = df
-
-        # Mostrar resultados
-        print(f"\nTabla: {tabla}")
-        print(f"Registros iniciales: {registros_iniciales}")
-        print(f"Duplicados eliminados: {duplicados}")
-        print(f"Fechas invalidas: {fechas_invalidas}")
-        print(f"Valores nulos: {total_nulos}")
-        print(f"Registros finales: {len(df)}")
+            raise
 
     print("\n================================")
     print(" TRANSFORMACION COMPLETADA")
@@ -98,12 +126,22 @@ def transformar_datos(datos):
     return datos_limpios
 
 
+# ==========================================
+# EJECUCION INDEPENDIENTE
+# ==========================================
+
 if __name__ == "__main__":
 
     from extraccion import extraer_datos
 
-    # Extraer datos desde SQL Server
-    datos = extraer_datos()
+    resultado_extraccion = extraer_datos()
 
-    # Transformar los datos
+    # Compatibilidad con la extraccion que devuelve
+    # (datos, auditoria) o solamente datos.
+
+    if isinstance(resultado_extraccion, tuple):
+        datos, auditoria_extraccion = resultado_extraccion
+    else:
+        datos = resultado_extraccion
+
     datos_limpios = transformar_datos(datos)
