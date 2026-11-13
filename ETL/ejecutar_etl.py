@@ -8,24 +8,42 @@ def ejecutar_etl():
 
     try:
 
-        print("\nINICIANDO PROCESO ETL COMPLETO")
+        print("\n================================")
+        print(" INICIANDO PROCESO ETL")
+        print("================================")
 
-        # 1. EXTRACT
-        datos = extraer_datos()
+        # 1. EXTRACCION
+        resultado = extraer_datos()
 
-        # 2. TRANSFORM
+        datos, auditoria = resultado
+
+        # Verificar que la extraccion fue exitosa
+        errores = [
+            registro for registro in auditoria
+            if registro["estado"] != "EXITOSO"
+        ]
+
+        if errores:
+            raise Exception(
+                "La extraccion contiene tablas con errores."
+            )
+
+        # 2. TRANSFORMACION
         datos_limpios = transformar_datos(datos)
 
-        # 3. LOAD
+        # 3. CARGA
         cargar_datos(datos_limpios)
 
         print("\n================================")
-        print(" PROCESO ETL FINALIZADO")
+        print(" PROCESO ETL COMPLETADO")
         print("================================")
 
     except Exception as error:
 
-        print("\nERROR EN EL PROCESO ETL")
+        print("\n================================")
+        print(" ERROR EN EL PROCESO ETL")
+        print("================================")
+
         print(error)
 
 
