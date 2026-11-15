@@ -2,6 +2,7 @@
 from datetime import date
 from pathlib import Path
 import csv
+from ML.asistente_ia import consultar_gemini
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -660,4 +661,29 @@ def obtener_pronostico():
         raise HTTPException(
             status_code=500,
             detail=f"Error al obtener pronosticos: {str(error)}"
+        )
+    
+@app.get("/api/ia/consultar")
+def consultar_asistente(pregunta: str):
+    try:
+        if not pregunta.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Debes escribir una pregunta."
+            )
+
+        respuesta = consultar_gemini(pregunta)
+
+        return {
+            "pregunta": pregunta,
+            "respuesta": respuesta
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al consultar Gemini: {str(e)}"
         )

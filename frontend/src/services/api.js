@@ -1,7 +1,10 @@
 
 const API_URL = "http://127.0.0.1:8000";
 
-// Función general para construir los filtros
+// ==========================================
+// FUNCIÓN AUXILIAR PARA CONSTRUIR FILTROS
+// ==========================================
+
 function construirParametros(filtros = {}) {
   const params = new URLSearchParams();
 
@@ -14,7 +17,10 @@ function construirParametros(filtros = {}) {
   return params.toString();
 }
 
-// DASHBOARD: RESUMEN
+// ==========================================
+// DASHBOARD
+// ==========================================
+
 export async function obtenerResumen(filtros = {}) {
   const parametros = construirParametros(filtros);
 
@@ -23,13 +29,12 @@ export async function obtenerResumen(filtros = {}) {
   );
 
   if (!response.ok) {
-    throw new Error(`Error al obtener resumen: ${response.status}`);
+    throw new Error(`Error HTTP: ${response.status}`);
   }
 
   return await response.json();
 }
 
-// DASHBOARD: VENTAS MENSUALES
 export async function obtenerVentasMensuales(filtros = {}) {
   const parametros = construirParametros(filtros);
 
@@ -38,13 +43,12 @@ export async function obtenerVentasMensuales(filtros = {}) {
   );
 
   if (!response.ok) {
-    throw new Error(`Error al obtener ventas mensuales: ${response.status}`);
+    throw new Error(`Error HTTP: ${response.status}`);
   }
 
   return await response.json();
 }
 
-// DASHBOARD: VENTAS POR CATEGORÍA
 export async function obtenerVentasCategoria(filtros = {}) {
   const parametros = construirParametros(filtros);
 
@@ -53,22 +57,139 @@ export async function obtenerVentasCategoria(filtros = {}) {
   );
 
   if (!response.ok) {
-    throw new Error(`Error al obtener ventas por categoría: ${response.status}`);
+    throw new Error(`Error HTTP: ${response.status}`);
   }
 
   return await response.json();
 }
 
-// MACHINE LEARNING: PRONÓSTICO DE VENTAS
+// ==========================================
+// VENTAS
+// ==========================================
+
+export async function obtenerVentas() {
+  const response = await fetch(`${API_URL}/api/ventas`);
+
+  if (!response.ok) {
+    throw new Error(`Error HTTP: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ==========================================
+// CLIENTES
+// ==========================================
+
+export async function obtenerClientes() {
+  const response = await fetch(`${API_URL}/api/clientes`);
+
+  if (!response.ok) {
+    throw new Error(`Error HTTP: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ==========================================
+// PRODUCTOS
+// ==========================================
+
+export async function obtenerProductos() {
+  const response = await fetch(`${API_URL}/api/productos`);
+
+  if (!response.ok) {
+    throw new Error(`Error HTTP: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ==========================================
+// PAGOS
+// ==========================================
+
+export async function obtenerPagos() {
+  const response = await fetch(`${API_URL}/api/pagos`);
+
+  if (!response.ok) {
+    throw new Error(`Error HTTP: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ==========================================
+// INVENTARIO
+// ==========================================
+
+export async function obtenerInventario() {
+  const response = await fetch(`${API_URL}/api/inventario`);
+
+  if (!response.ok) {
+    throw new Error(`Error HTTP: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ==========================================
+// DATA WAREHOUSE
+// ==========================================
+
+export async function obtenerEstadoDataWarehouse() {
+  const response = await fetch(`${API_URL}/api/datawarehouse`);
+
+  if (!response.ok) {
+    throw new Error(`Error HTTP: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ==========================================
+// MACHINE LEARNING
+// ==========================================
+
 export async function obtenerPronostico() {
+  const response = await fetch(`${API_URL}/api/ml/pronostico`);
+
+  if (!response.ok) {
+    throw new Error(`Error HTTP: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// ==========================================
+// INTELIGENCIA ARTIFICIAL GENERATIVA - GEMINI
+// ==========================================
+
+export async function consultarIA(pregunta) {
+  if (!pregunta || !pregunta.trim()) {
+    throw new Error("Debes escribir una pregunta.");
+  }
+
+  const params = new URLSearchParams({
+    pregunta: pregunta.trim()
+  });
+
   const response = await fetch(
-    `${API_URL}/api/ml/pronostico`
+    `${API_URL}/api/ia/consultar?${params.toString()}`
   );
 
   if (!response.ok) {
-    throw new Error(`Error al obtener pronóstico: ${response.status}`);
+    let mensaje = "Error al consultar Gemini.";
+
+    try {
+      const error = await response.json();
+      mensaje = error.detail || mensaje;
+    } catch {
+      // Mantener mensaje predeterminado si la respuesta no es JSON.
+    }
+
+    throw new Error(mensaje);
   }
 
   return await response.json();
 }
-

@@ -1,0 +1,15 @@
+# Proteger claves y variables de entorno
+.env
+backend/.env
+
+# Entorno virtual
+venv/
+backend/venv/
+
+# Archivos Python
+__pycache__/
+*.pyc
+
+# Dependencias frontend
+node_modules/
+dist/
