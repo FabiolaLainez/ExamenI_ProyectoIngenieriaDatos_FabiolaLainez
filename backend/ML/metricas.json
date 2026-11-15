@@ -1,0 +1,14 @@
+{
+    "modelo": "RandomForestRegressor",
+    "version": "1.0",
+    "fecha_entrenamiento": "2026-11-15T15:31:15.541034",
+    "dias_historicos": 365,
+    "registros_entrenamiento": 268,
+    "registros_prueba": 67,
+    "MAE": 347.94687458989347,
+    "RMSE": 672.7004234663397,
+    "MAPE": 6.9532510842594375,
+    "baseline_MAE": 939.6119402985074,
+    "baseline_RMSE": 1533.1447926480657,
+    "baseline_MAPE": 17.301531197179614
+}
