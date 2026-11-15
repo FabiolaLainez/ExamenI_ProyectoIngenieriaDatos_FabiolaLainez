@@ -1,5 +1,5 @@
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -10,15 +10,11 @@ import {
   Bell,
   Search,
   CalendarDays,
-  TrendingUp,
-  TrendingDown,
   DollarSign,
   Menu,
-  ArrowUpRight,
-  ArrowDownRight,
   Download,
-  ChevronDown,
   CircleHelp,
+  RefreshCw,
 } from "lucide-react";
 
 import {
@@ -29,52 +25,101 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  BarChart,
-  Bar,
   PieChart,
   Pie,
   Cell,
 } from "recharts";
 
-const salesData = [
-  { month: "Ene", sales: 125000, previous: 98000 },
-  { month: "Feb", sales: 148000, previous: 115000 },
-  { month: "Mar", sales: 132000, previous: 120000 },
-  { month: "Abr", sales: 175000, previous: 138000 },
-  { month: "May", sales: 160000, previous: 142000 },
-  { month: "Jun", sales: 195000, previous: 155000 },
-  { month: "Jul", sales: 182000, previous: 160000 },
-  { month: "Ago", sales: 215000, previous: 175000 },
-  { month: "Sep", sales: 205000, previous: 182000 },
-  { month: "Oct", sales: 238000, previous: 195000 },
-  { month: "Nov", sales: 225000, previous: 205000 },
-  { month: "Dic", sales: 270000, previous: 220000 },
-];
+import {
+  obtenerResumen,
+  obtenerVentasMensuales,
+  obtenerVentasCategoria,
+} from "./services/api";
 
-const products = [
-  { name: "Laptop Lenovo IdeaPad", category: "Tecnología", employee: "Carlos López", units: 145, revenue: 145000 },
-  { name: "Mouse Logitech M170", category: "Accesorios", employee: "María García", units: 132, revenue: 26400 },
-  { name: "Monitor Samsung 24”", category: "Tecnología", employee: "Carlos López", units: 98, revenue: 98000 },
-  { name: "Teclado mecánico", category: "Accesorios", employee: "Ana Martínez", units: 86, revenue: 43000 },
-  { name: "Impresora HP LaserJet", category: "Oficina", employee: "María García", units: 72, revenue: 86400 },
-];
+const COLORS = ["#2563eb", "#14b8a6", "#f59e0b", "#8b5cf6", "#ec4899"];
 
-const categories = [
-  { name: "Tecnología", value: 48 },
-  { name: "Accesorios", value: 30 },
-  { name: "Oficina", value: 22 },
+const MESES = [
+  "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+  "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
 ];
-
-const COLORS = ["#2563eb", "#14b8a6", "#f59e0b"];
 
 const formatMoney = (value) =>
   new Intl.NumberFormat("es-HN", {
     style: "currency",
     currency: "HNL",
-    maximumFractionDigits: 0,
-  }).format(value);
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
 
-function MetricCard({ title, value, change, positive, icon: Icon, description }) {
+const formatNumber = (value) =>
+  new Intl.NumberFormat("es-HN").format(Number(value) || 0);
+
+function obtenerFilas(respuesta) {
+  if (Array.isArray(respuesta)) return respuesta;
+
+  if (Array.isArray(respuesta?.data)) return respuesta.data;
+  if (Array.isArray(respuesta?.resultados)) return respuesta.resultados;
+  if (Array.isArray(respuesta?.ventas)) return respuesta.ventas;
+  if (Array.isArray(respuesta?.datos)) return respuesta.datos;
+
+  return [];
+}
+
+function normalizarVentasMensuales(respuesta) {
+  return obtenerFilas(respuesta).map((item) => {
+    const mes =
+      item.mes ??
+      item.Mes ??
+      item.nombre_mes ??
+      item.NombreMes ??
+      item.month ??
+      "";
+
+    const numeroMes = Number(mes);
+
+    const nombreMes =
+      numeroMes >= 1 && numeroMes <= 12
+        ? MESES[numeroMes - 1]
+        : String(mes).substring(0, 3);
+
+    return {
+      month: nombreMes,
+      sales: Number(
+        item.ventas ??
+        item.Ventas ??
+        item.total_ventas ??
+        item.TotalVentas ??
+        item.sales ??
+        item.total ??
+        0
+      ),
+    };
+  });
+}
+
+function normalizarCategorias(respuesta) {
+  return obtenerFilas(respuesta).map((item) => ({
+    name:
+      item.categoria ??
+      item.Categoria ??
+      item.nombre_categoria ??
+      item.NombreCategoria ??
+      item.name ??
+      "Sin categoría",
+    value: Number(
+      item.ventas ??
+      item.Ventas ??
+      item.total_ventas ??
+      item.TotalVentas ??
+      item.ingresos ??
+      item.Ingresos ??
+      item.total ??
+      item.value ??
+      0
+    ),
+  }));
+}
+
+function MetricCard({ title, value, icon: Icon, description, loading }) {
   return (
     <div className="metric-card">
       <div className="metric-top">
@@ -84,13 +129,11 @@ function MetricCard({ title, value, change, positive, icon: Icon, description })
         </div>
       </div>
 
-      <div className="metric-value">{value}</div>
+      <div className="metric-value">
+        {loading ? "..." : value}
+      </div>
 
       <div className="metric-bottom">
-        <span className={positive ? "change positive" : "change negative"}>
-          {positive ? <ArrowUpRight size={15} /> : <ArrowDownRight size={15} />}
-          {change}
-        </span>
         <span className="metric-description">{description}</span>
       </div>
     </div>
@@ -101,24 +144,78 @@ function App() {
   const [activePage, setActivePage] = useState("Dashboard");
   const [period, setPeriod] = useState("Anual");
   const [category, setCategory] = useState("Todas");
-  const [employee, setEmployee] = useState("Todos");
   const [search, setSearch] = useState("");
 
-  const visibleProducts = useMemo(() => {
-    return products.filter((product) => {
-      const matchesCategory = category === "Todas" || product.category === category;
-      const matchesEmployee = employee === "Todos" || product.employee === employee;
-      const matchesSearch = product.name.toLowerCase().includes(search.toLowerCase());
+  const [resumen, setResumen] = useState(null);
+  const [ventasMensuales, setVentasMensuales] = useState([]);
+  const [ventasCategoria, setVentasCategoria] = useState([]);
 
-      return matchesCategory && matchesEmployee && matchesSearch;
-    });
-  }, [category, employee, search]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const cargarDatos = async () => {
+    setLoading(true);
+    setError("");
+
+    const resultados = await Promise.allSettled([
+      obtenerResumen(),
+      obtenerVentasMensuales(),
+      obtenerVentasCategoria(),
+    ]);
+
+    if (resultados[0].status === "fulfilled") {
+      setResumen(resultados[0].value);
+    } else {
+      setError(
+        "No se pudieron cargar los indicadores. Verifica que FastAPI esté activo."
+      );
+    }
+
+    if (resultados[1].status === "fulfilled") {
+      setVentasMensuales(
+        normalizarVentasMensuales(resultados[1].value)
+      );
+    }
+
+    if (resultados[2].status === "fulfilled") {
+      setVentasCategoria(
+        normalizarCategorias(resultados[2].value)
+      );
+    }
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    cargarDatos();
+  }, []);
 
   const chartData = useMemo(() => {
-    if (period === "Últimos 6 meses") return salesData.slice(6);
-    if (period === "Primer semestre") return salesData.slice(0, 6);
-    return salesData;
-  }, [period]);
+    if (period === "Primer semestre") {
+      return ventasMensuales.slice(0, 6);
+    }
+
+    if (period === "Últimos 6 meses") {
+      return ventasMensuales.slice(-6);
+    }
+
+    return ventasMensuales;
+  }, [period, ventasMensuales]);
+
+  const categoriasDisponibles = useMemo(() => {
+    return ventasCategoria.map((item) => item.name);
+  }, [ventasCategoria]);
+
+  const categoriasFiltradas = useMemo(() => {
+    if (category === "Todas") return ventasCategoria;
+
+    return ventasCategoria.filter((item) => item.name === category);
+  }, [category, ventasCategoria]);
+
+  const totalCategorias = categoriasFiltradas.reduce(
+    (total, item) => total + item.value,
+    0
+  );
 
   const menuItems = [
     { label: "Dashboard", icon: LayoutDashboard },
@@ -149,7 +246,9 @@ function App() {
             return (
               <button
                 key={item.label}
-                className={`nav-item ${activePage === item.label ? "active" : ""}`}
+                className={`nav-item ${
+                  activePage === item.label ? "active" : ""
+                }`}
                 onClick={() => setActivePage(item.label)}
               >
                 <Icon size={19} />
@@ -164,7 +263,7 @@ function App() {
             <span className="status-dot"></span>
             <div>
               <strong>Data Warehouse</strong>
-              <small>Conexión de demostración</small>
+              <small>SQL Server · EmpresaComercial</small>
             </div>
           </div>
 
@@ -197,15 +296,26 @@ function App() {
               <Search size={17} />
               <input
                 type="text"
-                placeholder="Buscar producto..."
+                placeholder="Buscar..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
+
+            <button
+              className="icon-button"
+              aria-label="Actualizar datos"
+              onClick={cargarDatos}
+              title="Actualizar datos"
+            >
+              <RefreshCw size={18} />
+            </button>
+
             <button className="icon-button" aria-label="Notificaciones">
               <Bell size={19} />
               <span className="notification-dot"></span>
             </button>
+
             <div className="top-avatar">FL</div>
           </div>
         </header>
@@ -214,15 +324,30 @@ function App() {
           <section className="page-heading">
             <div>
               <div className="eyebrow">RESUMEN DEL NEGOCIO</div>
-              <h1>{activePage === "Dashboard" ? "Dashboard ejecutivo" : `Análisis de ${activePage}`}</h1>
-              <p>Monitorea el rendimiento y comportamiento de tu empresa.</p>
+              <h1>
+                {activePage === "Dashboard"
+                  ? "Dashboard ejecutivo"
+                  : `Análisis de ${activePage}`}
+              </h1>
+              <p>
+                Monitorea el rendimiento y comportamiento de tu empresa.
+              </p>
             </div>
 
-            <button className="export-button" onClick={() => window.print()}>
+            <button
+              className="export-button"
+              onClick={() => window.print()}
+            >
               <Download size={17} />
               Exportar
             </button>
           </section>
+
+          {error && (
+            <div className="error-message">
+              {error}
+            </div>
+          )}
 
           <section className="filters-panel">
             <div className="filter-heading">
@@ -233,7 +358,10 @@ function App() {
             <div className="filter-controls">
               <label>
                 Período
-                <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+                <select
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                >
                   <option>Anual</option>
                   <option>Primer semestre</option>
                   <option>Últimos 6 meses</option>
@@ -242,21 +370,16 @@ function App() {
 
               <label>
                 Categoría
-                <select value={category} onChange={(e) => setCategory(e.target.value)}>
-                  <option>Todas</option>
-                  <option>Tecnología</option>
-                  <option>Accesorios</option>
-                  <option>Oficina</option>
-                </select>
-              </label>
-
-              <label>
-                Empleado
-                <select value={employee} onChange={(e) => setEmployee(e.target.value)}>
-                  <option>Todos</option>
-                  <option>Carlos López</option>
-                  <option>María García</option>
-                  <option>Ana Martínez</option>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                >
+                  <option value="Todas">Todas</option>
+                  {categoriasDisponibles.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>
@@ -265,35 +388,34 @@ function App() {
           <section className="metrics-grid">
             <MetricCard
               title="Ventas totales"
-              value="L 2,170,000"
-              change="12.8%"
-              positive
+              value={formatMoney(resumen?.ventas_totales)}
               icon={DollarSign}
-              description="vs. período anterior"
+              description="Ingresos registrados"
+              loading={loading}
             />
+
             <MetricCard
               title="Unidades vendidas"
-              value="4,285"
-              change="8.4%"
-              positive
+              value={formatNumber(resumen?.unidades_vendidas)}
               icon={ShoppingCart}
-              description="vs. período anterior"
+              description="Unidades comercializadas"
+              loading={loading}
             />
+
             <MetricCard
               title="Clientes registrados"
-              value="100"
-              change="5.2%"
-              positive
+              value={formatNumber(resumen?.clientes_registrados)}
               icon={Users}
-              description="vs. período anterior"
+              description="Clientes en el Data Warehouse"
+              loading={loading}
             />
+
             <MetricCard
               title="Ticket promedio"
-              value="L 4,340"
-              change="2.1%"
-              positive
+              value={formatMoney(resumen?.ticket_promedio)}
               icon={CreditCard}
-              description="vs. período anterior"
+              description="Promedio por venta"
+              loading={loading}
             />
           </section>
 
@@ -302,27 +424,58 @@ function App() {
               <div className="panel-header">
                 <div>
                   <h3>Evolución de ventas</h3>
-                  <p>Comparación de ventas por mes</p>
+                  <p>Ventas registradas por mes</p>
                 </div>
                 <span className="chart-tag">HNL</span>
               </div>
 
               <div className="chart-legend">
-                <span><i className="legend-dot blue"></i> Período actual</span>
-                <span><i className="legend-dot gray"></i> Período anterior</span>
+                <span>
+                  <i className="legend-dot blue"></i>
+                  Ventas reales
+                </span>
               </div>
 
               <div className="chart-area">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <AreaChart
+                    data={chartData}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                  >
                     <defs>
-                      <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#2563eb" stopOpacity={0.22} />
-                        <stop offset="100%" stopColor="#2563eb" stopOpacity={0} />
+                      <linearGradient
+                        id="salesGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="#2563eb"
+                          stopOpacity={0.22}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="#2563eb"
+                          stopOpacity={0}
+                        />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf0f5" />
-                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#8490a3", fontSize: 12 }} />
+
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="#edf0f5"
+                    />
+
+                    <XAxis
+                      dataKey="month"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "#8490a3", fontSize: 12 }}
+                    />
+
                     <YAxis
                       axisLine={false}
                       tickLine={false}
@@ -330,12 +483,28 @@ function App() {
                       tickFormatter={(value) => `${value / 1000}k`}
                       width={45}
                     />
-                    <Tooltip formatter={(value) => formatMoney(value)} />
-                    <Area type="monotone" dataKey="previous" stroke="#aab4c3" strokeWidth={2} strokeDasharray="5 5" fill="transparent" name="Período anterior" />
-                    <Area type="monotone" dataKey="sales" stroke="#2563eb" strokeWidth={3} fill="url(#salesGradient)" name="Período actual" />
+
+                    <Tooltip
+                      formatter={(value) => formatMoney(value)}
+                    />
+
+                    <Area
+                      type="monotone"
+                      dataKey="sales"
+                      stroke="#2563eb"
+                      strokeWidth={3}
+                      fill="url(#salesGradient)"
+                      name="Ventas"
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
+
+              {!loading && chartData.length === 0 && (
+                <p className="empty-state">
+                  No hay datos mensuales disponibles.
+                </p>
+              )}
             </div>
 
             <div className="panel category-panel">
@@ -344,14 +513,13 @@ function App() {
                   <h3>Ventas por categoría</h3>
                   <p>Distribución de ingresos</p>
                 </div>
-                <button className="more-button">•••</button>
               </div>
 
               <div className="donut-container">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={categories}
+                      data={categoriasFiltradas}
                       dataKey="value"
                       nameKey="name"
                       cx="50%"
@@ -361,29 +529,57 @@ function App() {
                       paddingAngle={4}
                       stroke="none"
                     >
-                      {categories.map((entry, index) => (
-                        <Cell key={entry.name} fill={COLORS[index]} />
+                      {categoriasFiltradas.map((entry, index) => (
+                        <Cell
+                          key={entry.name}
+                          fill={COLORS[index % COLORS.length]}
+                        />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value) => `${value}%`} />
+
+                    <Tooltip
+                      formatter={(value) => formatMoney(value)}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
+
                 <div className="donut-center">
-                  <strong>100%</strong>
+                  <strong>
+                    {formatMoney(totalCategorias)}
+                  </strong>
                   <span>Total</span>
                 </div>
               </div>
 
               <div className="category-legend">
-                {categories.map((item, index) => (
-                  <div className="category-row" key={item.name}>
-                    <span className="category-name">
-                      <i style={{ backgroundColor: COLORS[index] }}></i>
-                      {item.name}
-                    </span>
-                    <strong>{item.value}%</strong>
-                  </div>
-                ))}
+                {categoriasFiltradas.map((item, index) => {
+                  const porcentaje =
+                    totalCategorias > 0
+                      ? (item.value / totalCategorias) * 100
+                      : 0;
+
+                  return (
+                    <div className="category-row" key={item.name}>
+                      <span className="category-name">
+                        <i
+                          style={{
+                            backgroundColor:
+                              COLORS[index % COLORS.length],
+                          }}
+                        ></i>
+                        {item.name}
+                      </span>
+
+                      <strong>{porcentaje.toFixed(1)}%</strong>
+                    </div>
+                  );
+                })}
+
+                {!loading && categoriasFiltradas.length === 0 && (
+                  <p className="empty-state">
+                    No hay datos por categoría.
+                  </p>
+                )}
               </div>
             </div>
           </section>
@@ -393,42 +589,13 @@ function App() {
               <div className="panel-header">
                 <div>
                   <h3>Productos destacados</h3>
-                  <p>Rendimiento según los filtros seleccionados</p>
+                  <p>Información pendiente de conexión con la API</p>
                 </div>
-                <button className="text-button">Ver todos <ArrowUpRight size={15} /></button>
               </div>
 
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>PRODUCTO</th>
-                      <th>CATEGORÍA</th>
-                      <th>UNIDADES</th>
-                      <th>INGRESOS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleProducts.map((product) => (
-                      <tr key={product.name}>
-                        <td>
-                          <div className="product-cell">
-                            <div className="product-symbol"><Package size={17} /></div>
-                            <strong>{product.name}</strong>
-                          </div>
-                        </td>
-                        <td><span className="category-badge">{product.category}</span></td>
-                        <td>{product.units}</td>
-                        <td className="revenue-cell">{formatMoney(product.revenue)}</td>
-                      </tr>
-                    ))}
-                    {visibleProducts.length === 0 && (
-                      <tr>
-                        <td colSpan="4" className="empty-state">No se encontraron productos.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+              <div className="empty-state">
+                Próximamente conectaremos el análisis de productos
+                directamente con el Data Warehouse.
               </div>
             </div>
 
@@ -436,35 +603,21 @@ function App() {
               <div className="panel-header">
                 <div>
                   <h3>Rendimiento comercial</h3>
-                  <p>Ingresos por empleado</p>
+                  <p>Información pendiente de conexión con la API</p>
                 </div>
               </div>
 
-              <div className="ranking-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    layout="vertical"
-                    data={[
-                      { name: "Carlos", value: 145000 },
-                      { name: "María", value: 112000 },
-                      { name: "Ana", value: 89000 },
-                    ]}
-                    margin={{ top: 5, right: 15, left: 5, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#edf0f5" />
-                    <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} width={55} />
-                    <Tooltip formatter={(value) => formatMoney(value)} />
-                    <Bar dataKey="value" fill="#2563eb" radius={[0, 6, 6, 0]} barSize={18} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="empty-state">
+                Próximamente conectaremos el análisis por empleado.
               </div>
             </div>
           </section>
 
           <footer className="footer">
-            <span>EmpresaComercial · Plataforma de Analítica Inteligente</span>
-            <span>Versión inicial · Datos de demostración</span>
+            <span>
+              EmpresaComercial · Plataforma de Analítica Inteligente
+            </span>
+            <span>Data Warehouse · SQL Server</span>
           </footer>
         </div>
       </main>
