@@ -1,4 +1,3 @@
-
 from sqlalchemy import text
 from conexion import engine
 
@@ -7,7 +6,8 @@ from conexion import engine
 # CONFIGURACION
 # ============================================================
 
-NOMBRE_PIPELINE = "Carga_DataWarehouse"
+NOMBRE_PIPELINE = "ETL_EmpresaComercial"
+ETAPA = "CARGA_DW"
 
 TABLAS_HECHOS = [
     "DW.FactVentas",
@@ -17,20 +17,114 @@ TABLAS_HECHOS = [
 
 
 # ============================================================
+# FUNCIONES DE AUDITORIA
+# ============================================================
+
+def registrar_inicio_auditoria():
+
+    consulta = text("""
+        INSERT INTO ETL.AuditoriaEjecucion
+        (
+            execution_id,
+            pipeline_name,
+            stage_name,
+            start_time,
+            source_object,
+            target_object,
+            rows_read,
+            inserted,
+            updated,
+            rejected,
+            status
+        )
+        OUTPUT INSERTED.AuditoriaID
+        VALUES
+        (
+            NEWID(),
+            :pipeline,
+            :etapa,
+            SYSDATETIME(),
+            :origen,
+            :destino,
+            0,
+            0,
+            0,
+            0,
+            'EN_PROCESO'
+        );
+    """)
+
+    with engine.begin() as conn:
+
+        auditoria_id = conn.execute(
+            consulta,
+            {
+                "pipeline": NOMBRE_PIPELINE,
+                "etapa": ETAPA,
+                "origen": "Ready",
+                "destino": "Data Warehouse"
+            }
+        ).scalar_one()
+
+    print(f"\nAuditoria iniciada. ID: {auditoria_id}")
+
+    return auditoria_id
+
+
+def registrar_fin_auditoria(
+    auditoria_id,
+    rows_read,
+    inserted,
+    updated=0,
+    rejected=0,
+    status="EXITOSO",
+    error_detail=None
+):
+
+    consulta = text("""
+        UPDATE ETL.AuditoriaEjecucion
+        SET
+            end_time = SYSDATETIME(),
+            rows_read = :rows_read,
+            inserted = :inserted,
+            updated = :updated,
+            rejected = :rejected,
+            status = :status,
+            error_detail = :error_detail
+        WHERE AuditoriaID = :auditoria_id;
+    """)
+
+    with engine.begin() as conn:
+
+        conn.execute(
+            consulta,
+            {
+                "auditoria_id": auditoria_id,
+                "rows_read": rows_read,
+                "inserted": inserted,
+                "updated": updated,
+                "rejected": rejected,
+                "status": status,
+                "error_detail": str(error_detail)[:4000]
+                if error_detail else None
+            }
+        )
+
+    print("Auditoria finalizada correctamente.")
+
+
+# ============================================================
 # FUNCIONES GENERALES
 # ============================================================
 
-def ejecutar_consulta(conn, consulta):
-    resultado = conn.execute(text(consulta))
-    return resultado
-
-
 def mostrar_resumen(conn):
+
     print("\n" + "=" * 55)
     print("RESUMEN DEL DATA WAREHOUSE")
     print("=" * 55)
 
     for tabla in TABLAS_HECHOS:
+
         cantidad = conn.execute(
             text(f"SELECT COUNT(*) FROM {tabla}")
         ).scalar_one()
@@ -38,11 +132,31 @@ def mostrar_resumen(conn):
         print(f"{tabla}: {cantidad:,} registros")
 
 
+def contar_registros_ready(conn):
+
+    ventas = conn.execute(text("""
+        SELECT COUNT(*)
+        FROM Ready.Ready_FactVentas
+    """)).scalar_one()
+
+    pagos = conn.execute(text("""
+        SELECT COUNT(*)
+        FROM Ready.Ready_FactPagos
+    """)).scalar_one()
+
+    inventario = conn.execute(text("""
+        SELECT COUNT(*)
+        FROM Ready.Ready_FactMovimientosInventario
+    """)).scalar_one()
+
+    return ventas + pagos + inventario
+
+
+# ============================================================
+# VALIDAR DIMENSIONES
+# ============================================================
+
 def validar_dimensiones(conn):
-    """
-    Comprueba que todas las filas de las tablas Ready
-    tengan una dimensión compatible según su fecha de operación.
-    """
 
     print("\nVALIDANDO DIMENSIONES...")
 
@@ -149,21 +263,39 @@ def validar_dimensiones(conn):
 
     for nombre, consulta in validaciones.items():
 
-        cantidad = conn.execute(text(consulta)).scalar_one()
+        cantidad = conn.execute(
+            text(consulta)
+        ).scalar_one()
 
         if cantidad > 0:
-            print(f"ERROR: {nombre}: {cantidad} registros sin dimension.")
+
+            print(
+                f"ERROR: {nombre}: "
+                f"{cantidad} registros sin dimension."
+            )
+
             errores += cantidad
+
         else:
-            print(f"OK: {nombre}: 0 registros sin dimension.")
+
+            print(
+                f"OK: {nombre}: "
+                "0 registros sin dimension."
+            )
 
     if errores > 0:
+
         raise Exception(
-            f"Existen {errores} registros sin una dimension compatible."
+            f"Existen {errores} registros sin "
+            "una dimension compatible."
         )
 
     print("Todas las dimensiones son compatibles.")
 
+
+# ============================================================
+# VALIDAR FECHAS
+# ============================================================
 
 def validar_fechas(conn):
 
@@ -198,15 +330,23 @@ def validar_fechas(conn):
 
     for nombre, consulta in consultas.items():
 
-        cantidad = conn.execute(text(consulta)).scalar_one()
+        cantidad = conn.execute(
+            text(consulta)
+        ).scalar_one()
 
         if cantidad > 0:
+
             raise Exception(
-                f"{nombre}: existen {cantidad} fechas sin correspondencia."
+                f"{nombre}: existen {cantidad} fechas "
+                "sin correspondencia."
             )
 
         print(f"OK: {nombre}: fechas compatibles.")
 
+
+# ============================================================
+# VALIDAR CANTIDADES DE INVENTARIO
+# ============================================================
 
 def validar_cantidades_inventario(conn):
 
@@ -220,9 +360,11 @@ def validar_cantidades_inventario(conn):
     """)).scalar_one()
 
     if cantidad > 0:
+
         raise Exception(
-            f"Existen {cantidad} cantidades nulas o decimales. "
-            "No se pueden convertir de forma segura a INT."
+            f"Existen {cantidad} cantidades nulas "
+            "o decimales. No se pueden convertir "
+            "de forma segura a INT."
         )
 
     print("OK: todas las cantidades son enteras.")
@@ -251,6 +393,7 @@ def cargar_fact_ventas(conn):
             Subtotal,
             EstadoVenta
         )
+
         SELECT
             f.IDDetalle,
             f.IDVenta,
@@ -321,9 +464,11 @@ def cargar_fact_ventas(conn):
 
     resultado = conn.execute(text(consulta))
 
-    print(f"Ventas insertadas: {resultado.rowcount:,}")
+    insertados = max(resultado.rowcount, 0)
 
-    return resultado.rowcount
+    print(f"Ventas insertadas: {insertados:,}")
+
+    return insertados
 
 
 # ============================================================
@@ -345,6 +490,7 @@ def cargar_fact_pagos(conn):
             MetodoPago,
             EstadoPago
         )
+
         SELECT
             f.IDPago,
             f.IDVenta,
@@ -356,7 +502,6 @@ def cargar_fact_pagos(conn):
 
         FROM Ready.Ready_FactPagos f
 
-        -- Relacion directa: evita multiplicar pagos
         INNER JOIN Ready.Ready_DimCliente rc
             ON rc.ClienteKey = f.ClienteKey
 
@@ -384,9 +529,11 @@ def cargar_fact_pagos(conn):
 
     resultado = conn.execute(text(consulta))
 
-    print(f"Pagos insertados: {resultado.rowcount:,}")
+    insertados = max(resultado.rowcount, 0)
 
-    return resultado.rowcount
+    print(f"Pagos insertados: {insertados:,}")
+
+    return insertados
 
 
 # ============================================================
@@ -408,6 +555,7 @@ def cargar_fact_inventario(conn):
             Cantidad,
             Motivo
         )
+
         SELECT
             f.IDMovimiento,
             f.FechaKey,
@@ -460,9 +608,11 @@ def cargar_fact_inventario(conn):
 
     resultado = conn.execute(text(consulta))
 
-    print(f"Movimientos insertados: {resultado.rowcount:,}")
+    insertados = max(resultado.rowcount, 0)
 
-    return resultado.rowcount
+    print(f"Movimientos insertados: {insertados:,}")
+
+    return insertados
 
 
 # ============================================================
@@ -475,26 +625,41 @@ def ejecutar_carga_dw():
     print("INICIANDO CARGA DEL DATA WAREHOUSE")
     print("=" * 55)
 
+    auditoria_id = None
+
+    total_leidos = 0
+    insertadas_ventas = 0
+    insertados_pagos = 0
+    insertados_inventario = 0
+
     try:
 
-        # Una sola transaccion para las tres tablas
+        # 1. Registrar inicio de auditoria
+        auditoria_id = registrar_inicio_auditoria()
+
+        # 2. Ejecutar la carga dentro de una transaccion
         with engine.begin() as conn:
 
             print("\nCONEXION EXITOSA A SQL SERVER.")
 
-            # 1. Validaciones previas
+            # Contar registros de entrada
+            total_leidos = contar_registros_ready(conn)
+
+            # Validaciones
             validar_fechas(conn)
+
             validar_dimensiones(conn)
+
             validar_cantidades_inventario(conn)
 
-            # 2. Cargar tablas de hechos
+            # Cargar hechos
             insertadas_ventas = cargar_fact_ventas(conn)
 
             insertados_pagos = cargar_fact_pagos(conn)
 
             insertados_inventario = cargar_fact_inventario(conn)
 
-            # 3. Mostrar resumen antes de confirmar
+            # Resumen
             mostrar_resumen(conn)
 
             print("\n" + "=" * 55)
@@ -502,18 +667,43 @@ def ejecutar_carga_dw():
             print("=" * 55)
 
             print(f"Ventas nuevas: {insertadas_ventas:,}")
-            print(f"Pagos nuevos: {insertados_pagos:,}")
-            print(f"Movimientos nuevos: {insertados_inventario:,}")
 
-            total = (
+            print(f"Pagos nuevos: {insertados_pagos:,}")
+
+            print(
+                f"Movimientos nuevos: "
+                f"{insertados_inventario:,}"
+            )
+
+            total_insertados = (
                 insertadas_ventas
                 + insertados_pagos
                 + insertados_inventario
             )
 
-            print(f"Total de registros nuevos: {total:,}")
+            print(
+                f"Total de registros nuevos: "
+                f"{total_insertados:,}"
+            )
 
-        # La transaccion se confirma al salir correctamente
+        # La transaccion del DW ya fue confirmada
+
+        total_insertados = (
+            insertadas_ventas
+            + insertados_pagos
+            + insertados_inventario
+        )
+
+        # 3. Registrar resultado exitoso
+        registrar_fin_auditoria(
+            auditoria_id=auditoria_id,
+            rows_read=total_leidos,
+            inserted=total_insertados,
+            updated=0,
+            rejected=0,
+            status="EXITOSO"
+        )
+
         print("\n" + "=" * 55)
         print("CARGA DEL DATA WAREHOUSE COMPLETADA")
         print("=" * 55)
@@ -525,7 +715,34 @@ def ejecutar_carga_dw():
         print("=" * 55)
 
         print(f"Detalle: {error}")
-        print("La transaccion fue cancelada si estaba en ejecucion.")
+
+        # Intentar registrar el error en auditoria
+        if auditoria_id is not None:
+
+            try:
+
+                registrar_fin_auditoria(
+                    auditoria_id=auditoria_id,
+                    rows_read=total_leidos,
+                    inserted=0,
+                    updated=0,
+                    rejected=0,
+                    status="ERROR",
+                    error_detail=error
+                )
+
+            except Exception as error_auditoria:
+
+                print(
+                    "No fue posible actualizar la auditoria: "
+                    f"{error_auditoria}"
+                )
+
+        print(
+            "La transaccion de carga fue cancelada "
+            "si estaba en ejecucion."
+        )
+
         raise
 
 
@@ -534,4 +751,5 @@ def ejecutar_carga_dw():
 # ============================================================
 
 if __name__ == "__main__":
+
     ejecutar_carga_dw()
